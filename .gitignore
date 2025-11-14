@@ -1,3 +1,6 @@
 datas
 *.log
 train_datas
+lol
+*.png
+*.joblib

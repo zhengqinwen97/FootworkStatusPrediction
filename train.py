@@ -83,62 +83,75 @@ def process_folder(folder_path):
                 continue  # 或者 raise，取决于你是否希望中断
 
 def extract_sample_features(sample):
-    timestamps = list(sample['data'].keys())
+    def _extract_window_features(channel_list, window_size=500, stride=200):
+        arr = np.array(channel_list)   # shape (T, 246)
+        T, C = arr.shape
 
-    channel_0_list = []
-    channel_1_list = []
+        samples = []
+
+        for start in range(0, T - window_size + 1, stride):
+            window = arr[start:start + window_size]   # (200, 246)
+            feature_dict = {}
+
+            # 针对每个通道提取特征
+            for ch in range(C):
+                x = window[:, ch]
+                dx = np.diff(x)
+
+                # --- 基础统计特征 ---
+                feature_dict[f'ch{ch}_mean']  = float(np.mean(x))
+                feature_dict[f'ch{ch}_std']   = float(np.std(x))
+                feature_dict[f'ch{ch}_median'] = float(np.median(x))
+                feature_dict[f'ch{ch}_min']   = float(np.min(x))
+                feature_dict[f'ch{ch}_max']   = float(np.max(x))
+                # feature_dict[f'ch{ch}_range'] = float(np.max(x) - np.min(x))
+                # feature_dict[f'ch{ch}_p25']   = float(np.percentile(x, 25))
+                # feature_dict[f'ch{ch}_p75']   = float(np.percentile(x, 75))
+
+                # # --- 能量特征 ---
+                # feature_dict[f'ch{ch}_energy'] = float(np.mean(x ** 2))
+                # feature_dict[f'ch{ch}_rms']    = float(np.sqrt(np.mean(x ** 2)))
+
+                # # --- 变化特征 ---
+                # feature_dict[f'ch{ch}_mad']    = float(np.mean(np.abs(dx)))
+                # feature_dict[f'ch{ch}_maxdiff'] = float(np.max(np.abs(dx)))
+                # feature_dict[f'ch{ch}_slope_mean'] = float(np.mean(dx))
+
+                # # 过零率（零点变号次数）
+                # feature_dict[f'ch{ch}_zcr'] = float(np.sum(np.sign(x[1:]) != np.sign(x[:-1])))
+
+                # # --- 频域特征 ---
+                # fft_vals = np.abs(np.fft.rfft(x))
+                # freqs = np.fft.rfftfreq(len(x))
+
+                # # 主频与主频幅
+                # idx = np.argmax(fft_vals)
+                # feature_dict[f'ch{ch}_dom_freq'] = float(freqs[idx])
+                # feature_dict[f'ch{ch}_dom_amp']  = float(fft_vals[idx])
+
+                # # 谱熵
+                # psd = fft_vals ** 2
+                # psd_norm = psd / (np.sum(psd) + 1e-8)
+                # feature_dict[f'ch{ch}_spec_entropy'] = float(-np.sum(psd_norm * np.log(psd_norm + 1e-8)))
+
+            samples.append(feature_dict)
+
+        return samples
+    
+    timestamps = list(sample['data'].keys())
+    channel_list = []
     for value in sample['data'].values():
         if 0 in value and 1 in value:
-            channel_0_list.append(value[0])
-            channel_1_list.append(value[1])
+            # channel_list.append(value[0] + value[1])
+            channel_list.append(value[1])
 
-    # channel_0_list = [np.array(v[0]) for v in sample['data'].values()]
-    # channel_1_list = [np.array(v[1]) for v in sample['data'].values()]
-
-    all_ch0 = np.concatenate(channel_0_list) if channel_0_list else np.array([])
-    all_ch1 = np.concatenate(channel_1_list) if channel_1_list else np.array([])
-
-    def safe_stat(arr, func, default=0.0):
-        return func(arr) if len(arr) > 0 else default
-
-    features = {}
-
-    features['ch0_mean'] = safe_stat(all_ch0, np.mean)
-    features['ch0_std'] = safe_stat(all_ch0, np.std)
-    features['ch0_max'] = safe_stat(all_ch0, np.max)
-    features['ch0_min'] = safe_stat(all_ch0, np.min)
-    features['ch0_nonzero_ratio'] = safe_stat(all_ch0, lambda x: np.count_nonzero(x) / len(x))
-    features['ch0_energy'] = safe_stat(all_ch0, lambda x: np.sum(x ** 2))
-
-    features['ch1_mean'] = safe_stat(all_ch1, np.mean)
-    features['ch1_std'] = safe_stat(all_ch1, np.std)
-    features['ch1_max'] = safe_stat(all_ch1, np.max)
-    features['ch1_min'] = safe_stat(all_ch1, np.min)
-    features['ch1_nonzero_ratio'] = safe_stat(all_ch1, lambda x: np.count_nonzero(x) / len(x))
-    features['ch1_energy'] = safe_stat(all_ch1, lambda x: np.sum(x ** 2))
-
-    if len(all_ch0) == len(all_ch1) and len(all_ch0) > 0:
-        features['ch0_ch1_corr'] = np.corrcoef(all_ch0, all_ch1)[0, 1]
-        features['ch_diff_mean'] = np.mean(np.abs(all_ch0 - all_ch1))
-    else:
-        features['ch0_ch1_corr'] = 0.0
-        features['ch_diff_mean'] = 0.0
-
-    features['num_timestamps'] = len(timestamps)
-    if len(timestamps) > 1:
-        def parse_ts(ts):
-            parts = ts.split('_')
-            return int(parts[0]) * 3600000 + int(parts[1]) * 60000 + int(parts[2]) * 1000 + int(parts[3])
-        ts_ms = [parse_ts(ts) for ts in timestamps]
-        features['duration_ms'] = max(ts_ms) - min(ts_ms)
-    else:
-        features['duration_ms'] = 0
-
-    features['left_area_label'] = sample['left_area_label']
-    features['right_area_label'] = sample['right_area_label']
-    features['motion_state_label'] = sample['motion_state_label']
-    features['travel_state_label'] = sample['travel_state_label']
-    features['trips_count_label'] = sample['trips_count_label']
+    features = _extract_window_features(channel_list)
+    for feature in features:
+        feature['left_area_label'] = sample['left_area_label']
+        feature['right_area_label'] = sample['right_area_label']
+        feature['motion_state_label'] = sample['motion_state_label']
+        feature['travel_state_label'] = sample['travel_state_label']
+        feature['trips_count_label'] = sample['trips_count_label']
 
     return features
 
@@ -146,10 +159,11 @@ def train():
     data_folder = "train_datas"
     feature_dicts = []
     for sample in process_folder(data_folder):
-        feature_dicts.append(extract_sample_features(sample))
+        features = extract_sample_features(sample)
+        for feature in features:
+            feature_dicts.append(feature)
 
     df_features = pd.DataFrame(feature_dicts)
-
     # ================================ 训练模型 =================================
     label_columns = ['left_area_label']
     all_label_columns = ['left_area_label', 'right_area_label', 'motion_state_label', 'travel_state_label', 'trips_count_label']
@@ -165,7 +179,7 @@ def train():
         y = le.fit_transform(y_raw)
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.1, random_state=42, stratify=y
+            X, y, test_size=0.2, random_state=42, stratify=y
         )
 
         model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
@@ -195,7 +209,7 @@ def train():
         plt.tight_layout()
         
         filename = f'confusion_matrix_{label}.png'
-        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        plt.savefig(filename, dpi=200, bbox_inches='tight')
         print(f"Saved confusion matrix to {filename}")
         
         plt.close()  # 重要：关闭当前 figure，防止内存泄漏
