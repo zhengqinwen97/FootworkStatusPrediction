@@ -83,7 +83,7 @@ def process_folder(folder_path):
                 continue  # 或者 raise，取决于你是否希望中断
 
 def extract_sample_features(sample):
-    def _extract_window_features(channel_list, window_size=500, stride=200):
+    def _extract_window_features(channel_list, window_size=500, stride=250):
         arr = np.array(channel_list)   # shape (T, 246)
         T, C = arr.shape
 
@@ -143,7 +143,7 @@ def extract_sample_features(sample):
     for value in sample['data'].values():
         if 0 in value and 1 in value:
             # channel_list.append(value[0] + value[1])
-            channel_list.append(value[1])
+            channel_list.append(value[1][:246:10])
 
     features = _extract_window_features(channel_list)
     for feature in features:
@@ -179,7 +179,7 @@ def train():
         y = le.fit_transform(y_raw)
 
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=42, stratify=y
+            X, y, test_size=0.1, random_state=42, stratify=y
         )
 
         model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
@@ -214,5 +214,74 @@ def train():
         
         plt.close()  # 重要：关闭当前 figure，防止内存泄漏
 
+def predict(json_path):
+    parse_data = parse_file(json_path)
+
+    sample = {
+        "data": parse_data,
+        "left_area_label": 0,
+        "right_area_label": 0,
+        "motion_state_label": "",
+        "travel_state_label": "",
+        "trips_count_label": 0,
+    }
+
+    feature_dicts = extract_sample_features(sample)
+
+    if len(feature_dicts) == 0:
+        print("❌ 无可用特征，文件数据不足。")
+        return
+
+    df = pd.DataFrame(feature_dicts)
+    drop_cols = [
+        'left_area_label',
+        'right_area_label',
+        'motion_state_label',
+        'travel_state_label',
+        'trips_count_label'
+    ]
+    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors='ignore')
+
+    all_label_columns = [
+        'left_area_label',
+        'right_area_label',
+        'motion_state_label',
+        'travel_state_label',
+        'trips_count_label'
+    ]
+
+    results = {}
+
+    for label in all_label_columns:
+        model_file = f"{label}_model.joblib"
+        enc_file   = f"{label}_label_encoder.joblib"
+
+        if not (os.path.exists(model_file) and os.path.exists(enc_file)):
+            print(f"⚠️ 模型或编码器缺失: {label}")
+            continue
+
+        model = joblib.load(model_file)
+        le    = joblib.load(enc_file)
+
+        y_pred = model.predict(df)
+        y_label = le.inverse_transform(y_pred)
+
+        counts = pd.Series(y_label).value_counts()
+
+        results[label] = {
+            "per_window_predictions": list(y_label),
+            "vote_result": counts.idxmax(),
+            "vote_distribution": counts.to_dict()
+        }
+
+    print("\n================ PREDICTION ================\n")
+    for label, data in results.items():
+        print(f"🔵 {label}: {data['vote_result']}")
+        print(f"    {data['vote_distribution']}")
+        print()
+
+    return results
+
 if __name__ == "__main__":
-    train()
+    # train()
+    predict("datas/feet_dataxx/Obj1__left_3__right_1/left_3__right_1__brisk_walking__turn_left__1__5066.json")

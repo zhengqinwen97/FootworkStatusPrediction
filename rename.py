@@ -24,6 +24,14 @@ def normalize_name(name, count) -> str:
         lr = 'left_2__right_2'
     elif 'Obj4' in name:
         lr = 'left_2__right_2'
+    elif 'Obj5' in name:
+        lr = 'left_1__right_3'
+    elif 'Obj6' in name:
+        lr = 'left_1__right_3'
+    elif 'Obj7' in name:
+        lr = 'left_1__right_0'
+    elif 'Obj8' in name:
+        lr = 'left_1__right_0'
     else:
         raise RuntimeError(f"invalid name: {name}")
 
@@ -89,5 +97,6 @@ if __name__ == "__main__":
     # p.add_argument("--dry-run", action="store_true", help="仅显示将要做的改动，不实际重命名")
     # args = p.parse_args()
 
-    rename_all_recursive("datas", dry_run=False)
+    # rename_all_recursive("datas/feet_datax", dry_run=False)
+    rename_all_recursive("datas/feet_dataxx", dry_run=False)
 
