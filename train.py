@@ -13,7 +13,6 @@ from xgboost import XGBClassifier
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 
-
 def parse_file(path):
     features = []
     labels = []
@@ -47,18 +46,31 @@ def parse_file(path):
     return parse_data
 
 def process_folder(folder_path):
-    datas = []
     for root, dirs, files in os.walk(folder_path):
         for filename in files:
-            left_area, right_area, motion_state, travel_state, trips_count = filename.split("__")
-            left_area = int(left_area.split('_')[-1])
-            right_area = int(right_area.split('_')[-1])
-            trips_count = int(trips_count.split('.')[0])
-            file_path = os.path.join(root, filename)
-            parse_data = parse_file(file_path)
+            print(f"processing {filename}")
 
-            datas.append(
-                {
+            # 可选：跳过非 .json 文件
+            if not filename.endswith('.json'):
+                continue
+
+            try:
+                names = filename.split("__")
+
+                left_area = names[0]
+                right_area = names[1]
+                motion_state = names[2]
+                travel_state = names[3]
+                trips_count = names[4]
+
+                left_area = int(left_area.split('_')[-1])
+                right_area = int(right_area.split('_')[-1])
+                trips_count = int(trips_count.split('.')[0])
+
+                file_path = os.path.join(root, filename)
+                parse_data = parse_file(file_path)
+
+                yield {
                     'left_area_label': left_area,
                     'right_area_label': right_area,
                     'motion_state_label': motion_state,
@@ -66,33 +78,22 @@ def process_folder(folder_path):
                     'trips_count_label': trips_count,
                     'data': parse_data,
                 }
-            )
-    return datas
-
-def extract_features(sample):
-    labels = {
-        'left_area': sample['left_area_label'],
-        'right_area': sample['right_area_label'],
-        'motion_state': sample['motion_state_label'],
-        'travel_state': sample['travel_state_label'],
-        'trips_count': sample['trips_count_label']
-    }
-
-    features = []
-    for timestamp, data in sample['data'].items():
-        row = {
-            'timestamp': timestamp,
-            'channel_0': data[0], # 左脚
-            'channel_1': data[1], # 右脚
-            **labels
-        }
-        features.append(row)
-    return pd.DataFrame(features)
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+                continue  # 或者 raise，取决于你是否希望中断
 
 def extract_sample_features(sample):
     timestamps = list(sample['data'].keys())
-    channel_0_list = [np.array(v[0]) for v in sample['data'].values()]
-    channel_1_list = [np.array(v[1]) for v in sample['data'].values()]
+
+    channel_0_list = []
+    channel_1_list = []
+    for value in sample['data'].values():
+        if 0 in value and 1 in value:
+            channel_0_list.append(value[0])
+            channel_1_list.append(value[1])
+
+    # channel_0_list = [np.array(v[0]) for v in sample['data'].values()]
+    # channel_1_list = [np.array(v[1]) for v in sample['data'].values()]
 
     all_ch0 = np.concatenate(channel_0_list) if channel_0_list else np.array([])
     all_ch1 = np.concatenate(channel_1_list) if channel_1_list else np.array([])
@@ -143,44 +144,61 @@ def extract_sample_features(sample):
 
 def train():
     data_folder = "train_datas"
-    parsed_json_datas = process_folder(data_folder)
+    feature_dicts = []
+    for sample in process_folder(data_folder):
+        feature_dicts.append(extract_sample_features(sample))
 
-    # all_data = []
-    # for sample in parsed_json_datas:
-    #     df = extract_features(sample)
-    #     all_data.append(df)
-
-    # final_df = pd.concat(all_data, ignore_index=True)
-
-    feature_dicts = [extract_sample_features(sample) for sample in parsed_json_datas]
     df_features = pd.DataFrame(feature_dicts)
 
     # ================================ 训练模型 =================================
-    label_columns = ['left_area_label', 'right_area_label', 'motion_state_label', 'travel_state_label', 'trips_count_label']
+    label_columns = ['left_area_label']
+    all_label_columns = ['left_area_label', 'right_area_label', 'motion_state_label', 'travel_state_label', 'trips_count_label']
     confusion_matrices = []
 
     for label in label_columns:
         print(f"Processing {label}...")
-        X = df_features.drop(columns=label_columns)  # 特征
-        y = df_features[label]  # 当前处理的标签
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.1, random_state=42)
+        
+        X = df_features.drop(columns=all_label_columns)  # 特征
+        y_raw = df_features[label]  # 原始标签（可能是 0,2,3 等）
+
+        le = LabelEncoder()
+        y = le.fit_transform(y_raw)
+
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.1, random_state=42, stratify=y
+        )
+
         model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
         model.fit(X_train, y_train)
+
         model_filename = f'{label}_model.joblib'
+        encoder_filename = f'{label}_label_encoder.joblib'
         joblib.dump(model, model_filename)
+        joblib.dump(le, encoder_filename)  # 保存编码器，用于推理时还原标签
+
         y_pred = model.predict(X_test)
+
         cm = confusion_matrix(y_test, y_pred)
         confusion_matrices.append((label, cm))
+
+        print(f"Label mapping for {label}:")
+        for idx, cls in enumerate(le.classes_):
+            print(f"  Encoded {idx} -> Original {cls}")
 
     # ================================ 画热力图 =================================
     for label, cm in confusion_matrices:
         plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=True)
         plt.title(f'Confusion Matrix for {label}', fontsize=16, pad=20)
         plt.xlabel('Predicted label', fontsize=12)
         plt.ylabel('True label', fontsize=12)
         plt.tight_layout()
-        plt.show()
+        
+        filename = f'confusion_matrix_{label}.png'
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+        print(f"Saved confusion matrix to {filename}")
+        
+        plt.close()  # 重要：关闭当前 figure，防止内存泄漏
 
 if __name__ == "__main__":
     train()
