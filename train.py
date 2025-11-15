@@ -102,35 +102,35 @@ def extract_sample_features(sample):
                 feature_dict[f'ch{ch}_median'] = float(np.median(x))
                 feature_dict[f'ch{ch}_min']   = float(np.min(x))
                 feature_dict[f'ch{ch}_max']   = float(np.max(x))
-                # feature_dict[f'ch{ch}_range'] = float(np.max(x) - np.min(x))
-                # feature_dict[f'ch{ch}_p25']   = float(np.percentile(x, 25))
-                # feature_dict[f'ch{ch}_p75']   = float(np.percentile(x, 75))
+                feature_dict[f'ch{ch}_range'] = float(np.max(x) - np.min(x))
+                feature_dict[f'ch{ch}_p25']   = float(np.percentile(x, 25))
+                feature_dict[f'ch{ch}_p75']   = float(np.percentile(x, 75))
 
-                # # --- 能量特征 ---
-                # feature_dict[f'ch{ch}_energy'] = float(np.mean(x ** 2))
-                # feature_dict[f'ch{ch}_rms']    = float(np.sqrt(np.mean(x ** 2)))
+                # --- 能量特征 ---
+                feature_dict[f'ch{ch}_energy'] = float(np.mean(x ** 2))
+                feature_dict[f'ch{ch}_rms']    = float(np.sqrt(np.mean(x ** 2)))
 
-                # # --- 变化特征 ---
-                # feature_dict[f'ch{ch}_mad']    = float(np.mean(np.abs(dx)))
-                # feature_dict[f'ch{ch}_maxdiff'] = float(np.max(np.abs(dx)))
-                # feature_dict[f'ch{ch}_slope_mean'] = float(np.mean(dx))
+                # --- 变化特征 ---
+                feature_dict[f'ch{ch}_mad']    = float(np.mean(np.abs(dx)))
+                feature_dict[f'ch{ch}_maxdiff'] = float(np.max(np.abs(dx)))
+                feature_dict[f'ch{ch}_slope_mean'] = float(np.mean(dx))
 
-                # # 过零率（零点变号次数）
-                # feature_dict[f'ch{ch}_zcr'] = float(np.sum(np.sign(x[1:]) != np.sign(x[:-1])))
+                # 过零率（零点变号次数）
+                feature_dict[f'ch{ch}_zcr'] = float(np.sum(np.sign(x[1:]) != np.sign(x[:-1])))
 
-                # # --- 频域特征 ---
-                # fft_vals = np.abs(np.fft.rfft(x))
-                # freqs = np.fft.rfftfreq(len(x))
+                # --- 频域特征 ---
+                fft_vals = np.abs(np.fft.rfft(x))
+                freqs = np.fft.rfftfreq(len(x))
 
-                # # 主频与主频幅
-                # idx = np.argmax(fft_vals)
-                # feature_dict[f'ch{ch}_dom_freq'] = float(freqs[idx])
-                # feature_dict[f'ch{ch}_dom_amp']  = float(fft_vals[idx])
+                # 主频与主频幅
+                idx = np.argmax(fft_vals)
+                feature_dict[f'ch{ch}_dom_freq'] = float(freqs[idx])
+                feature_dict[f'ch{ch}_dom_amp']  = float(fft_vals[idx])
 
-                # # 谱熵
-                # psd = fft_vals ** 2
-                # psd_norm = psd / (np.sum(psd) + 1e-8)
-                # feature_dict[f'ch{ch}_spec_entropy'] = float(-np.sum(psd_norm * np.log(psd_norm + 1e-8)))
+                # 谱熵
+                psd = fft_vals ** 2
+                psd_norm = psd / (np.sum(psd) + 1e-8)
+                feature_dict[f'ch{ch}_spec_entropy'] = float(-np.sum(psd_norm * np.log(psd_norm + 1e-8)))
 
             samples.append(feature_dict)
 
@@ -140,8 +140,8 @@ def extract_sample_features(sample):
     channel_list = []
     for value in sample['data'].values():
         if 0 in value and 1 in value:
-            # channel_list.append(value[0] + value[1])
-            channel_list.append(value[1][:246:10])
+            channel_list.append(value[0][:246:10] + value[1][:246:10])
+            # channel_list.append(value[1][:246:10])
 
     features = _extract_window_features(channel_list)
     for feature in features:
@@ -167,11 +167,13 @@ def train():
     all_label_columns = ['left_area_label', 'right_area_label', 'motion_state_label', 'travel_state_label', 'trips_count_label']
     confusion_matrices = []
 
+    confusion_info = []  # 存 (label, cm, classes)
+
     for label in label_columns:
         print(f"Processing {label}...")
         
-        X = df_features.drop(columns=all_label_columns)  # 特征
-        y_raw = df_features[label]  # 原始标签（可能是 0,2,3 等）
+        X = df_features.drop(columns=all_label_columns)
+        y_raw = df_features[label]
 
         le = LabelEncoder()
         y = le.fit_transform(y_raw)
@@ -183,34 +185,45 @@ def train():
         model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
         model.fit(X_train, y_train)
 
-        model_filename = f'{label}_model.joblib'
-        encoder_filename = f'{label}_label_encoder.joblib'
+        model_filename = f'models/{label}_model.joblib'
+        encoder_filename = f'models/{label}_label_encoder.joblib'
         joblib.dump(model, model_filename)
-        joblib.dump(le, encoder_filename)  # 保存编码器，用于推理时还原标签
+        joblib.dump(le, encoder_filename)
 
         y_pred = model.predict(X_test)
-
         cm = confusion_matrix(y_test, y_pred)
-        confusion_matrices.append((label, cm))
+
+        # 保存混淆矩阵 + 原始标签名
+        confusion_info.append((label, cm, le.classes_))
 
         print(f"Label mapping for {label}:")
         for idx, cls in enumerate(le.classes_):
             print(f"  Encoded {idx} -> Original {cls}")
 
     # ================================ 画热力图 =================================
-    for label, cm in confusion_matrices:
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', cbar=True)
+    for label, cm, class_names in confusion_info:
+        plt.figure(figsize=(10, 8))  # 稍微加大一点，避免文字重叠
+        sns.heatmap(
+            cm,
+            annot=True,
+            fmt='d',
+            cmap='Blues',
+            cbar=True,
+            xticklabels=class_names,
+            yticklabels=class_names
+        )
         plt.title(f'Confusion Matrix for {label}', fontsize=16, pad=20)
         plt.xlabel('Predicted label', fontsize=12)
         plt.ylabel('True label', fontsize=12)
+        plt.xticks(rotation=45, ha='right')   # 避免长标签重叠
+        plt.yticks(rotation=0)
         plt.tight_layout()
         
         filename = f'out/confusion_matrix_{label}.png'
         plt.savefig(filename, dpi=200, bbox_inches='tight')
         print(f"Saved confusion matrix to {filename}")
         
-        plt.close()  # 重要：关闭当前 figure，防止内存泄漏
+        plt.close()
 
 def predict(json_path):
     parse_data = parse_file(json_path)
