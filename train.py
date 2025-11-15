@@ -264,8 +264,8 @@ def predict(json_path):
     results = {}
 
     for label in all_label_columns:
-        model_file = f"{label}_model.joblib"
-        enc_file   = f"{label}_label_encoder.joblib"
+        model_file = f"models/{label}_model.joblib"
+        enc_file   = f"models/{label}_label_encoder.joblib"
 
         if not (os.path.exists(model_file) and os.path.exists(enc_file)):
             print(f"⚠️ 模型或编码器缺失: {label}")
@@ -294,5 +294,5 @@ def predict(json_path):
     return results
 
 if __name__ == "__main__":
-    train()
-    # predict("datas/feet_dataxx/Obj1__left_3__right_1/left_3__right_1__brisk_walking__turn_left__1__5066.json")
+    # train()
+    predict("train_datas/left_2__right_2__brisk_walking__turn_right__1__5154.json")
