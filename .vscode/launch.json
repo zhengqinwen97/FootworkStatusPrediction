@@ -1,0 +1,21 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "train",
+            "type": "python",
+            "python": "python",
+            "program": "./train.py",
+            "console": "integratedTerminal",
+            "request": "launch"
+        },
+        {
+            "name": "rename",
+            "type": "python",
+            "python": "python",
+            "program": "./rename.py",
+            "console": "integratedTerminal",
+            "request": "launch"
+        }
+    ]
+}

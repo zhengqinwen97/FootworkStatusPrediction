@@ -9,8 +9,6 @@ import joblib
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
-from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 
 def parse_file(path):
@@ -165,7 +163,7 @@ def train():
 
     df_features = pd.DataFrame(feature_dicts)
     # ================================ 训练模型 =================================
-    label_columns = ['left_area_label']
+    label_columns = ['left_area_label', 'right_area_label', 'motion_state_label', 'travel_state_label']
     all_label_columns = ['left_area_label', 'right_area_label', 'motion_state_label', 'travel_state_label', 'trips_count_label']
     confusion_matrices = []
 
@@ -208,7 +206,7 @@ def train():
         plt.ylabel('True label', fontsize=12)
         plt.tight_layout()
         
-        filename = f'confusion_matrix_{label}.png'
+        filename = f'out/confusion_matrix_{label}.png'
         plt.savefig(filename, dpi=200, bbox_inches='tight')
         print(f"Saved confusion matrix to {filename}")
         
@@ -283,5 +281,5 @@ def predict(json_path):
     return results
 
 if __name__ == "__main__":
-    # train()
-    predict("datas/feet_dataxx/Obj1__left_3__right_1/left_3__right_1__brisk_walking__turn_left__1__5066.json")
+    train()
+    # predict("datas/feet_dataxx/Obj1__left_3__right_1/left_3__right_1__brisk_walking__turn_left__1__5066.json")
