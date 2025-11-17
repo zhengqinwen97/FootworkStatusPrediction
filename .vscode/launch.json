@@ -4,7 +4,6 @@
         {
             "name": "train",
             "type": "python",
-            "python": "python",
             "program": "./train.py",
             "console": "integratedTerminal",
             "request": "launch"
@@ -12,7 +11,6 @@
         {
             "name": "rename",
             "type": "python",
-            "python": "python",
             "program": "./rename.py",
             "console": "integratedTerminal",
             "request": "launch"

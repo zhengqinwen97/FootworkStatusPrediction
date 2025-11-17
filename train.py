@@ -6,6 +6,7 @@ import xgboost as xgb
 import seaborn as sns
 import matplotlib.pyplot as plt
 import joblib
+import copy
 
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
@@ -64,6 +65,16 @@ def process_folder(folder_path):
                 left_area = int(left_area.split('_')[-1])
                 right_area = int(right_area.split('_')[-1])
                 trips_count = int(trips_count.split('.')[0])
+
+                area_map = {
+                    0: 'none',
+                    1: 'front',
+                    2: 'middle',
+                    3: 'back',
+                }
+
+                left_area = "foreign_object_" + area_map[left_area]
+                right_area = "foreign_object_" + area_map[right_area]
 
                 file_path = os.path.join(root, filename)
                 parse_data = parse_file(file_path)
@@ -172,7 +183,7 @@ def train():
     for label in label_columns:
         print(f"Processing {label}...")
         
-        X = df_features.drop(columns=all_label_columns)
+        X = df_features
         y_raw = df_features[label]
 
         le = LabelEncoder()
@@ -181,6 +192,10 @@ def train():
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, test_size=0.1, random_state=42, stratify=y
         )
+
+        X_train = X_train.drop(columns=all_label_columns)
+        X_test_origin = copy.deepcopy(X_test)
+        X_test = X_test.drop(columns=all_label_columns)
 
         model = xgb.XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
         model.fit(X_train, y_train)
@@ -200,9 +215,41 @@ def train():
         for idx, cls in enumerate(le.classes_):
             print(f"  Encoded {idx} -> Original {cls}")
 
+        if label in ['left_area_label', 'right_area_label']:
+            X_test_slow_walking = X_test_origin[X_test_origin["motion_state_label"] == "slow_walking"]
+            X_test_brisk_walking = X_test_origin[X_test_origin["motion_state_label"] == "brisk_walking"]
+            X_test_standing = X_test_origin[X_test_origin["motion_state_label"] == "standing"]
+
+            y_test_slow_walking = y_test[X_test_origin["motion_state_label"] == "slow_walking"]
+            y_test_brisk_walking = y_test[X_test_origin["motion_state_label"] == "brisk_walking"]
+            y_test_standing = y_test[X_test_origin["motion_state_label"] == "standing"]
+
+            X_test_slow_walking = X_test_slow_walking.drop(columns=all_label_columns)
+            X_test_brisk_walking = X_test_brisk_walking.drop(columns=all_label_columns)
+            X_test_standing = X_test_standing.drop(columns=all_label_columns)
+
+            y_pred_slow_walking = model.predict(X_test_slow_walking)
+            y_pred_brisk_walking = model.predict(X_test_brisk_walking)
+            y_pred_standing = model.predict(X_test_standing)
+
+            cm_slow_walking = confusion_matrix(y_test_slow_walking, y_pred_slow_walking)
+            cm_brisk_walking = confusion_matrix(y_test_brisk_walking, y_pred_brisk_walking)
+            cm_standing = confusion_matrix(y_test_standing, y_pred_standing)
+
+            # 保存混淆矩阵 + 原始标签名
+            confusion_info.append((f"{label}_slow_walking", cm_slow_walking, le.classes_))
+            confusion_info.append((f"{label}_brisk_walking", cm_brisk_walking, le.classes_))
+            confusion_info.append((f"{label}_standing", cm_standing, le.classes_))
+
+            # print(f"Label mapping for {label}_slow_walking:")
+            # for idx, cls in enumerate(le.classes_):
+            #     print(f"  Encoded {idx} -> Original {cls}")
+
+
     # ================================ 画热力图 =================================
     for label, cm, class_names in confusion_info:
-        plt.figure(figsize=(10, 8))  # 稍微加大一点，避免文字重叠
+        plt.figure(figsize=(10, 8))
+
         sns.heatmap(
             cm,
             annot=True,
@@ -210,19 +257,23 @@ def train():
             cmap='Blues',
             cbar=True,
             xticklabels=class_names,
-            yticklabels=class_names
+            yticklabels=class_names,
+            annot_kws={"size": 14}     # 热力图格子里数字字体变大
         )
-        plt.title(f'Confusion Matrix for {label}', fontsize=16, pad=20)
-        plt.xlabel('Predicted label', fontsize=12)
-        plt.ylabel('True label', fontsize=12)
-        plt.xticks(rotation=45, ha='right')   # 避免长标签重叠
-        plt.yticks(rotation=0)
+
+        plt.title(f'Confusion Matrix for {label}', fontsize=18, pad=20)
+        plt.xlabel('Predicted label', fontsize=16)
+        plt.ylabel('True label', fontsize=16)
+
+        plt.xticks(rotation=45, ha='right', fontsize=14)
+        plt.yticks(rotation=0, fontsize=14)
+
         plt.tight_layout()
-        
+
         filename = f'out/confusion_matrix_{label}.png'
         plt.savefig(filename, dpi=200, bbox_inches='tight')
         print(f"Saved confusion matrix to {filename}")
-        
+
         plt.close()
 
 def predict(json_path):
@@ -294,5 +345,5 @@ def predict(json_path):
     return results
 
 if __name__ == "__main__":
-    # train()
-    predict("train_datas/left_2__right_2__brisk_walking__turn_right__1__5154.json")
+    train()
+    # predict("train_datas/left_2__right_2__brisk_walking__turn_right__1__5154.json")
