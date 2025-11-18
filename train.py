@@ -102,12 +102,10 @@ def extract_sample_features(sample):
             window = arr[start:start + window_size]   # (200, 246)
             feature_dict = {}
 
-            # 针对每个通道提取特征
             for ch in range(C):
                 x = window[:, ch]
                 dx = np.diff(x)
 
-                # --- 基础统计特征 ---
                 feature_dict[f'ch{ch}_mean']  = float(np.mean(x))
                 feature_dict[f'ch{ch}_std']   = float(np.std(x))
                 feature_dict[f'ch{ch}_median'] = float(np.median(x))
@@ -117,28 +115,22 @@ def extract_sample_features(sample):
                 feature_dict[f'ch{ch}_p25']   = float(np.percentile(x, 25))
                 feature_dict[f'ch{ch}_p75']   = float(np.percentile(x, 75))
 
-                # --- 能量特征 ---
                 feature_dict[f'ch{ch}_energy'] = float(np.mean(x ** 2))
                 feature_dict[f'ch{ch}_rms']    = float(np.sqrt(np.mean(x ** 2)))
 
-                # --- 变化特征 ---
                 feature_dict[f'ch{ch}_mad']    = float(np.mean(np.abs(dx)))
                 feature_dict[f'ch{ch}_maxdiff'] = float(np.max(np.abs(dx)))
                 feature_dict[f'ch{ch}_slope_mean'] = float(np.mean(dx))
 
-                # 过零率（零点变号次数）
                 feature_dict[f'ch{ch}_zcr'] = float(np.sum(np.sign(x[1:]) != np.sign(x[:-1])))
 
-                # --- 频域特征 ---
                 fft_vals = np.abs(np.fft.rfft(x))
                 freqs = np.fft.rfftfreq(len(x))
 
-                # 主频与主频幅
                 idx = np.argmax(fft_vals)
                 feature_dict[f'ch{ch}_dom_freq'] = float(freqs[idx])
                 feature_dict[f'ch{ch}_dom_amp']  = float(fft_vals[idx])
 
-                # 谱熵
                 psd = fft_vals ** 2
                 psd_norm = psd / (np.sum(psd) + 1e-8)
                 feature_dict[f'ch{ch}_spec_entropy'] = float(-np.sum(psd_norm * np.log(psd_norm + 1e-8)))
